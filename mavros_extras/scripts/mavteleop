@@ -18,9 +18,12 @@ from tf.transformations import quaternion_from_euler
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Header, Float64
 from geometry_msgs.msg import PoseStamped, TwistStamped, Vector3, Quaternion, Point
-from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.msg import OverrideRCIn, ManualControl, ParamValue
 from mavros import command
 from mavros import setpoint as SP
+from mavros_msgs.srv import SetMode
+from mavros_msgs.srv._SetMode import SetModeRequest
+from mavros_msgs.srv import ParamSet
 
 
 def arduino_map(x, inmin, inmax, outmin, outmax):
@@ -86,9 +89,15 @@ axes_scale = {
 button_map = {
     'arm' : 0,
     'disarm' : 1,
-    'takeoff': 2,
-    'land': 3,
-    'enable': 4
+    'takeoff' : 2,
+    'land' : 3,
+    'enable': 4,
+    'altctl' : 9,
+    'posctl' : 10,
+    'mission' : 11,
+    'loiter' : 12,
+    'manual': 13,
+    'offboard' : 14
 }
 
 
@@ -105,10 +114,16 @@ def arm(args, state):
     except rospy.ServiceException as ex:
         fault(ex)
 
-    if not ret.success:
-        rospy.loginfo("Request failed.")
-    else:
-        rospy.loginfo("Request success.")
+#    if not ret.success:
+#        rospy.loginfo("Request failed.")
+#    else:
+#        rospy.loginfo("Request success.")
+
+def select_mode(args, state):
+    try:
+        command.arming(value=state)
+    except rospy.ServiceException as ex:
+        fault(ex)
 
 
 def load_map(m, n):
@@ -142,6 +157,9 @@ def rc_override_control(args):
         pitch = get_axis(joy, 'pitch')
         yaw = get_axis(joy, 'yaw')
         throttle = arduino_map(get_axis(joy, 'throttle'), -1.0, 1.0, 0.0, 1.0)
+        
+        
+        mode_srv = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
 
         rospy.logdebug("RPYT: %f, %f, %f, %f", roll, pitch, yaw, throttle)
 
@@ -149,6 +167,26 @@ def rc_override_control(args):
             ch = rc_channels[n]
             rc.channels[ch.chan] = ch.calc_us(v)
             rospy.logdebug("RC%d (%s): %d us", ch.chan, ch.name, ch.calc_us(v))
+
+        if get_buttons(joy,'offboard') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="AUTO.READY")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'auto') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="AUTO.LOITER")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'manual') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="MANUAL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'arm') == 1:
+            arm(args, True)
+        elif get_buttons(joy,'disarm') == 1:
+            arm(args, False)
 
 
         set_chan('roll', roll)
@@ -173,9 +211,18 @@ def attitude_setpoint_control(args):
     load_map(axes_scale, '~axes_scale/')
     load_map(button_map, '~button_map/')
 
+    mode_srv = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
+    
     att_pub = SP.get_pub_attitude_pose(queue_size=10)
     thd_pub = SP.get_pub_attitude_throttle(queue_size=10)
 
+    manual_pub = rospy.Publisher(mavros.get_topic("manual_control", "send"), ManualControl, queue_size=10)
+    mc_msg = ManualControl()
+    
+    param_srv = rospy.ServiceProxy(mavros.get_topic("param", "set"),ParamSet)
+    pv = ParamValue()
+    pv.real=0.01
+    param_srv(param_id="COM_ARM_EKF_AB", value=pv )
     if rospy.get_param(mavros.get_topic("setpoint_attitude", "reverse_throttle"), False):
         def thd_normalize(v):
             return v
@@ -192,18 +239,63 @@ def attitude_setpoint_control(args):
 
         rospy.logdebug("RPYT: %f, %f, %f, %f", roll, pitch, yaw, throttle)
 
-        if get_buttons(joy,'arm') == 1:
+        if get_buttons(joy,'altctl') == 1:
+            try:
+                print("ALTCTL")
+                mode_srv(base_mode=0, custom_mode="ALTCTL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'posctl') == 1:
+            try:
+                print("POSCTL")
+                mode_srv(base_mode=0, custom_mode="POSCTL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'mission') == 1:
+            try:
+                print("AUTO.MISSION")
+                mode_srv(base_mode=0, custom_mode="AUTO.MISSION")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'loiter') == 1:
+            try:
+                print("AUTO.LOITER")
+                mode_srv(base_mode=0, custom_mode="AUTO.LOITER")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'manual') == 1:
+            try:
+                print("MANUAL")
+                mode_srv(base_mode=0, custom_mode="MANUAL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'offboard') == 1:
+            try:
+                print("OFFBOARD")
+                mode_srv(base_mode=0, custom_mode="OFFBOARD")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'arm') == 1:
             arm(args, True)
         elif get_buttons(joy,'disarm') == 1:
             arm(args, False)
 
+        
+        mc_msg.x=arduino_map(get_axis(joy, 'pitch'),-1.0,1.0,-1000,1000)
+        mc_msg.y=arduino_map(get_axis(joy, 'roll'),-1.0,1.0,-1000,1000)
+        mc_msg.z=arduino_map(get_axis(joy, 'throttle'),-1.0,1.0,-1000,1000)
+        mc_msg.r=arduino_map(get_axis(joy, 'yaw'),-1.0,1.0,1000,-1000)
+        mc_msg.buttons=0;
+        
+        manual_pub.publish(mc_msg)
+        
         # TODO: Twist variation
         pose = PoseStamped(header=Header(stamp=rospy.get_rostime()))
         q = quaternion_from_euler(roll, pitch, yaw)
         pose.pose.orientation = Quaternion(*q)
 
-        att_pub.publish(pose)
-        thd_pub.publish(data=throttle)
+#        att_pub.publish(pose)
+#        thd_pub.publish(data=throttle)
 
 
     jsub = rospy.Subscriber("joy", Joy, joy_cb)
@@ -218,6 +310,7 @@ def velocity_setpoint_control(args):
     load_map(button_map, '~button_map/')
 
     vel_pub = SP.get_pub_velocity_cmd_vel(queue_size=10)
+    mode_srv = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
 
     def joy_cb(joy):
         # get axes normalized to -1.0..+1.0 RPYT
@@ -227,6 +320,26 @@ def velocity_setpoint_control(args):
         throttle = get_axis(joy, 'throttle')
 
         rospy.logdebug("RPYT: %f, %f, %f, %f", roll, pitch, yaw, throttle)
+
+        if get_buttons(joy,'offboard') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="OFFBOARD")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'auto') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="AUTO.LOITER")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'manual') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="MANUAL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'arm') == 1:
+            arm(args, True)
+        elif get_buttons(joy,'disarm') == 1:
+            arm(args, False)
 
         # Based on QGC UAS joystickinput_settargets branch
         # not shure that it really need inegrating, as it done in QGC.
@@ -250,6 +363,7 @@ def position_setpoint_control(args):
     load_map(axes_scale, '~axes_scale/')
     load_map(button_map, '~button_map/')
 
+    mode_srv = rospy.ServiceProxy(mavros.get_topic('set_mode'), SetMode)
     pos_pub = SP.get_pub_position_local(queue_size=10)
 
     def joy_cb(joy):
@@ -267,6 +381,26 @@ def position_setpoint_control(args):
 
         rospy.logdebug("RPYT: %f, %f, %f, %f", roll, pitch, yaw, throttle)
         rospy.logdebug("Point(%f %f %f)", px, py, pz)
+
+        if get_buttons(joy,'offboard') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="OFFBOARD")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'auto') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="AUTO.LOITER")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'manual') == 1:
+            try:
+                mode_srv(base_mode=0, custom_mode="MANUAL")
+            except rospy.ServiceException as ex:
+                fault(ex)
+        elif get_buttons(joy,'arm') == 1:
+            arm(args, True)
+        elif get_buttons(joy,'disarm') == 1:
+            arm(args, False)
 
         # Based on QGC UAS joystickinput_settargets branch
         pose = PoseStamped(header=Header(stamp=rospy.get_rostime()))

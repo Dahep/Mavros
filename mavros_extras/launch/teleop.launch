@@ -7,10 +7,12 @@
 	<arg name="teleop_args" default="-att" />
 
 	<node pkg="joy" type="joy_node" name="joy" required="True">
-		<param name="autorepeat_rate" value="5" /> <!-- Minimal update rate, Hz -->
+		<param name="autorepeat_rate" value="5" /> <!-- Minimal update rate, Hz -->		
+		<param name="dev" value="/dev/input/by-id/usb-©Microsoft_Xbox_360_Wireless_Receiver_for_Windows_E1577480-joystick" />
 	</node>
 
 	<node pkg="mavros_extras" type="mavteleop" name="mavteleop" args="$(arg teleop_args)" required="True" output="screen">
-		<rosparam command="load" file="$(find mavros_extras)/launch/f710_joy.yaml" />
+		<rosparam command="load" file="$(find mavros_extras)/launch/microsoft360.yaml" />
+<!-- 		<rosparam command="load" file="$(find mavros_extras)/launch/f710_joy.yaml" /> -->
 	</node>
 </launch>

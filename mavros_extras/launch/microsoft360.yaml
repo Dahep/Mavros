@@ -1,0 +1,37 @@
+# Joystic configuration for Logitech F710 gamepad
+# TODO: check scale, button map
+axes_map:
+  roll: 2
+  pitch: 5
+  yaw: 3
+  throttle: 1
+axes_scale:
+  roll: 1.0
+  pitch: 1.0
+  yaw: 1.0
+  throttle: 1.0
+button_map:
+  arm: 0
+  disarm: 1
+  takeoff: 2
+  land: 3,
+  enable: 4
+  altctl: 9
+  posctl: 10
+  mission: 11
+  loiter: 12
+  manual: 13
+  offboard: 14
+rc_modes:
+  offboard:
+    rc_channel: 4
+    rc_value: 1000
+    joy_flags: [ [2,1] ]
+  auto:
+    rc_channel: 4
+    rc_value: 1500
+    joy_flags: [ [3,1] ]
+  manual:
+    rc_channel: 4
+    rc_value: 2000
+    joy_flags: [ [0,1] ]
